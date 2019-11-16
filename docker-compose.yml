@@ -1,0 +1,375 @@
+version: '3.7'
+
+services:
+  ###############################
+  ####   CORE DCH SERVICES   ####
+  ###############################
+
+  # Primary Reverse Proxy.
+  Web:
+    image: docker.pkg.github.com/kristianfjones/docker-images/caddy2:alpine
+    command: ['run', '--config', '/etc/Caddy/Caddyfile.json']
+    restart: unless-stopped
+    container_name: Web
+    networks:
+      - Frontend
+    ports:
+      - 443:442/tcp
+      - 443:442/udp
+    volumes:
+      - Web_Config:/etc/Caddy
+      - TLS_Data:/TLS
+
+  # Web Based VS Code for docker volume file creation & editing
+  Web-Files:
+    image: docker.pkg.github.com/kristianfjones/docker-images/vs-code-alpine:latest
+    command:
+      [
+        '/usr/local/bin/code-server',
+        '/Config',
+        '--user-data-dir=/home/vs-code/.code/data',
+        '--extensions-dir=/home/vs-code/.code/extensions',
+      ]
+    restart: unless-stopped
+    networks:
+      - Frontend
+    ports:
+      - 85:8080
+    volumes:
+      - Web_Config:/Config/Caddy
+      - TLS_Data:/Config/TLS
+      - Metricbeat_Config:/Config/Metricbeat
+      - Heartbeat_Data:/Config/Heartbeat
+      - Filebeat_Data:/Config/Filebeat
+      - Logstash_Data:/Config/Logstash/config
+      - Logstash_Config:/Config/Logstash/pipelines/
+
+  # FTP Server for programmatic access to files
+  FTP-Files:
+    image: delfer/alpine-ftp-server
+    restart: unless-stopped
+    environment:
+      USERS: '$ACCESS_USER|$ACCESS_PASSWORD|/Config'
+    ports:
+      - 21:21/tcp
+      - 21000-21010:21000-21010
+    volumes:
+      - FTP_Lab:/Config
+      - FTP_Logs:/var/log
+
+  SSH-Files:
+    image: sickp/alpine-sshd
+    restart: unless-stopped
+    ports:
+      - 2222:22/tcp
+    volumes:
+      - Web_Config:/Config/Caddy
+      - TLS_Data:/Config/TLS
+      - Metricbeat_Config:/Config/Metricbeat
+      - Heartbeat_Data:/Config/Heartbeat
+      - Filebeat_Data:/Config/Filebeat
+      - Logstash_Data:/Config/Logstash/config
+      - Logstash_Config:/Config/Logstash/pipelines/
+
+  # Automated Docker container image download & update of running containers. (https://github.com/pyouroboros/ouroboros)
+  ouroboros:
+    image: pyouroboros/ouroboros
+    restart: unless-stopped
+    container_name: ouroboros
+    hostname: ouroboros
+    environment:
+      CLEANUP: 'true'
+      INTERVAL: 60
+      LOG_LEVEL: info
+      SELF_UPDATE: 'true'
+      TZ: $DCH_TIMEZONE
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - $HOME/.docker/config.json:/root/.docker/config.json
+
+  ###########################
+  ####        BOTS       ####
+  ###########################
+
+  ### Discord Bots
+
+  # Confederation College Discord Bot (https://github.com/KristianFJones/Discord-College-Roles-Bot)
+  #  college-discord-bot:
+  #    image: docker.pkg.github.com/kristianfjones/discord-college-roles-bot/bot:latest
+  #    restart: unless-stopped
+  #    env_file: ./ENVs/confederation-bot.env
+  #    volumes:
+  #      - Confed-College-Discord-Bot_Data:/data
+
+  ###########################
+  ####      SERVICES     ####
+  ###########################
+
+  ##### Third Party Applications & Services
+
+  #### Networking
+  ### Personal SpeedTest server to test speed to DataCenter (https://speedtest.int.kristianjones.xyz) (https://github.com/librespeed/speedtest)
+  speedtest-kj-int:
+    image: adolfintel/speedtest:latest
+    restart: unless-stopped
+    networks:
+      - Frontend
+
+  #### Elastic Stack
+  Elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.4.2
+    restart: unless-stopped
+    container_name: elasticsearch
+    labels:
+      co.elastic.logs/disable: false
+      co.elastic.logs/module: elasticsearch
+    networks:
+      - Backend
+    environment:
+      TZ: ${DOCKER_TZ}
+      cluster.name: primary-cluster
+      bootstrap.memory_lock: 'true'
+      discovery.type: single-node
+      ES_JAVA_OPT: '-Xms512m -Xmx512m'
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - 9200:9200
+    volumes:
+      - Elastic_Data:/usr/share/elasticsearch/data
+
+  Kibana:
+    image: docker.elastic.co/kibana/kibana:7.4.2
+    restart: unless-stopped
+    container_name: kibana
+    environment:
+      ELASTICSEARCH_HOSTS: 'http://elasticsearch:9200'
+      # This setting specifies the host of the back end server.
+      # Default: "localhost"
+      SERVER_HOST: 0.0.0.0
+
+      # The maximum payload size in bytes for incoming server requests.
+      # Default: 1048576
+      SERVER_MAXPAYLOADBYTES: 4194304
+
+      # A human-readable display name that identifies this Kibana instance.
+      # Default: "your-hostname"
+      SERVER_NAME: kibana
+
+      # Kibana is served by a back end server. This setting specifies the port to use.
+      # Default: 5601
+      SERVER_PORT: 5601
+
+      # Set this value to true to allow Vega to use any URL to access external data sources and images. If false, Vega
+      # can only get data from Elasticsearch.
+      # Default: false
+      VEGA_ENABLEEXTERNALURLS: 'true'
+    networks:
+      - Frontend
+      - Backend
+    ports:
+      - 5601:5601
+    depends_on:
+      - Elasticsearch
+    labels:
+      co.elastic.logs/disable: false
+      co.elastic.logs/module: kibana
+
+  Metricbeat:
+    image: docker.elastic.co/beats/metricbeat:7.4.2
+    restart: unless-stopped
+    container_name: metricbeat
+    user: root
+    env_file: ./ENVs/metricbeat.env
+    environment:
+      TZ: ${DOCKER_TZ}
+      ELASTICSEARCH_HOST: elasticsearch:9200
+      KIBANA_HOST: kibana:5601
+    networks:
+      - Backend
+    depends_on:
+      - Elasticsearch
+    volumes:
+      - Metricbeat_Config:/usr/share/metricbeat
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /proc:/hostfs/proc:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+
+  Heartbeat:
+    image: docker.elastic.co/beats/heartbeat:7.4.2
+    restart: unless-stopped
+    container_name: heartbeat
+    user: root
+    env_file: ./ENVs/heartbeat.env
+    environment:
+      TZ: ${DOCKER_TZ}
+      ELASTICSEARCH_HOST: elasticsearch:9200
+      KIBANA_HOST: kibana:5601
+    networks:
+      - Backend
+    depends_on:
+      - Elasticsearch
+    volumes:
+      - Heartbeat_Data:/usr/share/heartbeat
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /proc:/hostfs/proc:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+
+  Filebeat:
+    image: docker.elastic.co/beats/filebeat:7.4.2
+    restart: unless-stopped
+    container_name: filebeat
+    user: root
+    env_file: ./ENVs/filebeat.env
+    environment:
+      TZ: ${DOCKER_TZ}
+      ELASTICSEARCH_HOST: elasticsearch:9200
+      KIBANA_HOST: kibana:5601
+    networks:
+      - Backend
+    depends_on:
+      - Elasticsearch
+    volumes:
+      - Filebeat_Data:/usr/share/filebeat
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /var/log/:/var/log/:ro
+
+  Logstash:
+    image: docker.elastic.co/logstash/logstash-oss:7.4.2
+    restart: unless-stopped
+    container_name: logstash
+    user: root
+    env_file: ./ENVs/logstash.env
+    environment:
+      TZ: ${DOCKER_TZ}
+      ELASTICSEARCH_HOST: elasticsearch:9200
+      KIBANA_HOST: kibana:5601
+    networks:
+      - Backend
+    ports:
+      - 5140:5140/udp
+    depends_on:
+      - Elasticsearch
+    volumes:
+      - Logstash_Data:/usr/share/logstash/config/
+      - Logstash_Config:/usr/share/logstash/pipeline/
+
+  #### Security
+
+  ### Keycloak
+  keycloak:
+    image: jboss/keycloak
+    environment:
+      DB_VENDOR: POSTGRES
+      DB_ADDR: $DB_HOST
+      DB_DATABASE: keycloak
+      DB_USER: postgres
+      DB_SCHEMA: public
+      DB_PASSWORD: $DB_PASSWORD
+    networks:
+      - Frontend
+
+  ### Home made Applications & Services
+
+  ### Coder
+  ### Web based automated deployment of VS-Code code-server containers (https://github.com/KristianFJones/coder.kristianjones.dev)
+  code-kjdev-api:
+    image: docker.pkg.github.com/kristianfjones/coder.kristianjones.dev/coder.kristianjones.dev-api:api
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      DB_NAME: code
+      DB_HOST: $DB_HOST
+      DB_PASSWORD: $DB_PASSWORD
+    networks:
+      - Frontend
+
+  code-kjdev-ui:
+    image: docker.pkg.github.com/kristianfjones/coder.kristianjones.dev/coder.kristianjones.dev-ui:ui
+    environment:
+      PUBLIC_URL: https://code.kristianjones.dev
+      API_HOST: code.kristianjones.dev
+    networks:
+      - Frontend
+
+  ### Distributed DNS
+
+  ###########################
+  ####       DEMOS       ####
+  ###########################
+
+  ##### Personal
+
+  #### Docker Shell (https://github.com/kristianfjones/lab.kristianjones.dev)
+  #### Web based Docker Shell
+  lab-kjdev-api:
+    image: docker.pkg.github.com/kristianfjones/lab.kristianjones.dev/apiserer
+    restart: unless-stopped
+    environment:
+      DB_NAME: docker
+      DB_HOST: $DB_HOST
+      DB_PASSWORD: $DB_PASSWORD
+    networks:
+      - Frontend
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  lab-kjdev-ui:
+    image: docker.pkg.github.com/kristianfjones/lab.kristianjones.dev/web
+    restart: unless-stopped
+    environment:
+      BASEURL: https://lab.kristianjones.dev
+    networks:
+      - Frontend
+
+  ##### K-Net
+  ##### Other
+
+volumes:
+  Web_Config:
+    driver: local
+
+  Confed-College-Discord-Bot_Data:
+    driver: local
+
+  TACACUS_Data:
+    driver: local
+
+  Elastic_Data:
+    driver: local
+
+  Metricbeat_Config:
+    driver: local
+
+  Filebeat_Data:
+    driver: local
+
+  Heartbeat_Data:
+    driver: local
+
+  Logstash_Data:
+    driver: local
+
+  Logstash_Config:
+    driver: local
+
+  TLS_Data:
+    driver: local
+
+  FTP_Lab:
+    driver: local
+
+  FTP_Logs:
+    driver: local
+
+networks:
+  Frontend:
+    name: Frontend
+
+  Backend:
+    name: Backend

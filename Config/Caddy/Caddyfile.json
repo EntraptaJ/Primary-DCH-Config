@@ -1,0 +1,67 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "kristianjones.dev": {
+          "listen": [":442"],
+          "routes": [
+            {
+              "match": [
+                {
+                  "host": ["*.kristianjones.dev"]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "handle": [
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [
+                            {
+                              "dial": "{http.request.host.labels.2}-kjdev-api:80"
+                            }
+                          ]
+                        }
+                      ],
+                      "match": [
+                        {
+                          "path": ["/graphql"]
+                        }
+                      ]
+                    },
+                    {
+                      "handle": [
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [
+                            {
+                              "dial": "{http.request.host.labels.2}-kjdev-ui:81"
+                            }
+                          ]
+                        }
+                      ],
+                      "match": [
+                        {
+                          "path": ["/"]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "experimental_http3": true
+        }
+      }
+    },
+    "tls": {
+      "certificates": {
+        "load_folders": ["/TLS"]
+      }
+    }
+  }
+}
