@@ -298,6 +298,24 @@ services:
       - Frontend
 
   ### Distributed DNS
+  dns-kjdev-api:
+    image: docker.pkg.github.com/kristianfjones/distributed-dns/distributed-dns-api:api
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_NAME: distributed-DNS
+      DB_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - Frontend
+
+  dns-kjdev-ui:
+    image: docker.pkg.github.com/kristianfjones/distributed-dns/distributed-dns-web:web
+    depends_on:
+      - dns-kjdev-api
+    environment:
+      API_HOST: dns-kjdev-api
+      PUBLIC_URL: https://dns.kristianjones.dev
+    networks:
+      - Frontend
 
   ###########################
   ####       DEMOS       ####
