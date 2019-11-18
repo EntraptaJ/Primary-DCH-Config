@@ -2,7 +2,7 @@
   "apps": {
     "http": {
       "servers": {
-        "kristianjones.dev": {
+        "core": {
           "listen": [":442"],
           "routes": [
             {
@@ -48,6 +48,40 @@
                           "path": ["/"]
                         }
                       ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "host": ["*.int.kristianjones.dev", "kjmedia.stream"]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "pomerium:443"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "host": ["plex.kjmedia.stream"]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "192.168.190.24:32400"
                     }
                   ]
                 }

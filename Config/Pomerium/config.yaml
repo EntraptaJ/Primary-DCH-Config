@@ -1,0 +1,20 @@
+policy:
+  - from: https://test.int.kristianjones.dev
+    to: http://speedtest-kj-int
+    allowed_groups:
+      - fwadmins@kristianjones.xyz
+    cors_allow_preflight: true
+    timeout: 30s
+
+  - from: https://kjmedia.stream
+    to: http://192.168.190.24
+    allowed_users:
+      - me@kristianjones.xyz
+      - kristianfjonesis@gmail.com
+      - defrex@gmail.com
+    timeout: 30s
+
+  - from: https://kibana.int.kristianjones.dev
+    to: http://Kibana:5601
+    allowed_users:
+      - me@kristianjones.xyz

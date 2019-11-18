@@ -79,3 +79,4 @@ zsdoc/data
 *.env
 SSL
 OldNew
+Config/TLS/*.pem

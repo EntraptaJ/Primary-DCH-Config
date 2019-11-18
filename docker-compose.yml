@@ -43,6 +43,7 @@ services:
       - Filebeat_Data:/Config/Filebeat
       - Logstash_Data:/Config/Logstash/config
       - Logstash_Config:/Config/Logstash/pipelines/
+      - Pomerium_Config:/Config/Pomerium
 
   # FTP Server for programmatic access to files
   FTP-Files:
@@ -70,6 +71,7 @@ services:
       - Filebeat_Data:/Config/Filebeat
       - Logstash_Data:/Config/Logstash/config
       - Logstash_Config:/Config/Logstash/pipelines/
+      - Pomerium_Config:/Config/Pomerium
 
   # Automated Docker container image download & update of running containers. (https://github.com/pyouroboros/ouroboros)
   ouroboros:
@@ -274,6 +276,16 @@ services:
     networks:
       - Frontend
 
+  # Pomerium
+  Pomerium:
+    image: pomerium/pomerium:latest
+    restart: unless-stopped
+    env_file: ./ENVs/Pomerium.env
+    networks:
+      - Frontend
+    volumes:
+      - Pomerium_Config:/pomerium
+
   ### Home made Applications & Services
 
   ### Coder
@@ -305,18 +317,21 @@ services:
       DB_NAME: distributed-DNS
       DB_PASSWORD: ${DB_PASSWORD}
     networks:
-      - Frontend
+      Frontend:
+        aliases:
+          - distributed-dns-kjdev-api
 
   dns-kjdev-ui:
-    image: docker.pkg.github.com/kristianfjones/distributed-dns/distributed-dns-web:web
+    image: docker.pkg.github.com/kristianfjones/distributed-dns/distributed-dns-ui:ui
     depends_on:
       - dns-kjdev-api
     environment:
       API_HOST: dns-kjdev-api
-      PUBLIC_URL: https://dns.kristianjones.dev
+      PUBLIC_URL: https://distributed-dns.kristianjones.dev
     networks:
-      - Frontend
-
+      Frontend:
+        aliases:
+          - distributed-dns-kjdev-ui
   ###########################
   ####       DEMOS       ####
   ###########################
@@ -356,6 +371,9 @@ volumes:
     driver: local
 
   TACACUS_Data:
+    driver: local
+
+  Pomerium_Config:
     driver: local
 
   Elastic_Data:
